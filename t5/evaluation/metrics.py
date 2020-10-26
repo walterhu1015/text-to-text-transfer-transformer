@@ -28,7 +28,10 @@ import numpy as np
 import sacrebleu
 import scipy.stats
 import sklearn.metrics
+import string
 from t5.evaluation import qa_utils
+from collections import Counter
+from typing import List
 
 from rouge_score import rouge_scorer
 from rouge_score import scoring
@@ -292,7 +295,7 @@ def multirc_f1_over_all_answers(targets, predictions):
 
 def auc(targets, predictions, targets_threshold=None):
   """Compute Area Under the ROC and PR curves.
-  
+
   ROC - Receiver Operating Characteristic
   PR  - Precision and Recall
 
@@ -390,3 +393,57 @@ def rank_classification(targets, predictions, num_classes=2):
           "accuracy": 100 * sklearn.metrics.accuracy_score(labels, predictions),
       })
   return metrics
+
+
+def coqa_tokenize(input: str):
+  """Tokenize and normalize text.
+
+  Adpated from official evaluation script at
+  https://stanfordnlp.github.io/coqa/.
+
+  Args:
+    input: string.
+
+  Returns:
+    Tokenized and normalized text.
+  """
+
+  def remove_articles(text):
+    regex = re.compile(r"\b(a|an|the)\b", re.UNICODE)
+    return re.sub(regex, " ", text)
+
+  def white_space_fix(text):
+    return " ".join(text.split())
+
+  def remove_punc(text):
+    exclude = set(string.punctuation)
+    return "".join(ch for ch in text if ch not in exclude)
+
+  return white_space_fix(remove_articles(remove_punc(input.lower()))).split()
+
+
+def sequence_f1(target: str, prediction: str):
+  """Given a target and prediction string, return token-wise F1 score."""
+
+  target_tokens = coqa_tokenize(target)
+  prediction_tokens = coqa_tokenize(prediction)
+  common = Counter(target_tokens) & Counter(prediction_tokens)
+  num_same = sum(common.values())
+  if len(target_tokens) == 0 or len(prediction_tokens) == 0:
+    # If either is no-answer, then F1 is 1 if they agree, 0 otherwise
+    return int(target_tokens == prediction_tokens)
+  if num_same == 0:
+    return 0
+  precision = 1.0 * num_same / len(prediction_tokens)
+  recall = 1.0 * num_same / len(target_tokens)
+  f1 = (2 * precision * recall) / (precision + recall)
+  return f1
+
+
+def coqa_metric(targets: List[List[str]], predictions: List[str]):
+  """Return mean F1 score over all QA turns."""
+  f1s = []
+  for (t, p) in zip(targets, predictions):
+    assert len(t) == 1
+    f1s.append(sequence_f1(t[0], p))
+  return {"f1": np.mean(np.array(f1s))}
