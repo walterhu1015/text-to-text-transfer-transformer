@@ -1580,10 +1580,16 @@ def rank_classification(
 
   def format_features(idx, ex):
     def _format_str(fmt):
-      keys = set(re.findall(r'{(\w+)}', fmt))
+      keys = set(re.findall(r'{(\S+)}', fmt))
       s = fmt
       for k in keys:
-        s = tf.strings.regex_replace(s, '{%s}' % k, ex[k])
+        value = ex
+        for subkey in k.split('/'):
+          value = value[subkey]
+        tf.debugging.assert_type(value, tf.string,
+          'Final value of nested key has to be a tf.string. Currently type: %s,'
+          % (str(type(value.dtype))))
+        s = tf.strings.regex_replace(s, '{%s}' % k, value)
       return s
 
     new_ex = {
